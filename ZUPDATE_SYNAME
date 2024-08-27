@@ -1,0 +1,133 @@
+*&---------------------------------------------------------------------*
+*& Report ZUPDATE_SYNAME
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ZUPDATE_SYNAME.
+
+DATA: lt_employees TYPE TABLE OF pa0002,
+      ls_employee  TYPE pa0002.
+
+DATA: lt_pa0001 TYPE TABLE OF pa0001,
+      ls_pa0001 TYPE pa0001.
+
+DATA: lt_info_0105 TYPE TABLE OF pa0105,
+      ls_info_0105 TYPE pa0105.
+
+DATA: lv_counter TYPE string,
+      lv_suffix  TYPE string,
+      lv_base_uname TYPE string,
+      lv_final_uname TYPE string,
+      existing_uname TYPE pa0105-uname.
+
+* Check the current date
+WRITE: / 'Current date:', sy-datum.
+
+* Select PERNR from PA0001 where ENDDA is greater than or equal to today
+SELECT * FROM pa0001 INTO TABLE lt_pa0001
+  WHERE endda >= sy-datum.
+
+* Check how many records were selected
+DATA(lv_count) = lines( lt_pa0001 ).
+WRITE: / 'Number of records found:', lv_count.
+
+* Now, use the results from lt_pa0001 to select from PA0002
+IF lt_pa0001 IS NOT INITIAL.
+  SELECT * FROM pa0002 INTO TABLE lt_employees
+    FOR ALL ENTRIES IN lt_pa0001
+    WHERE pernr = lt_pa0001-pernr.
+ENDIF.
+
+* Check if LT_EMPLOYEES has records
+IF sy-subrc = 0 AND lt_employees IS NOT INITIAL.
+  LOOP AT lt_employees INTO ls_employee.
+
+    CLEAR: lt_info_0105, lv_counter, lv_base_uname, lv_final_uname.
+
+    SELECT * FROM pa0105 INTO TABLE lt_info_0105
+      WHERE pernr = ls_employee-pernr
+      AND endda >= sy-datum.
+
+    IF lt_info_0105 IS INITIAL.
+
+      lv_base_uname = ls_employee-vorna(1) && ls_employee-nachn.
+
+      lv_counter = 1.
+
+      WHILE lv_counter < 1000.
+
+        CONCATENATE lv_base_uname lv_counter INTO lv_final_uname.
+
+        SELECT SINGLE uname FROM pa0105
+          INTO @existing_uname
+          WHERE uname = _final_uname.
+
+        IF sy-subrc <> 0.
+          EXIT.
+        ENDIF.
+
+        lv_counter = lv_counter + 1.
+
+      ENDWHILE.
+
+      CLEAR ls_info_0105.
+      ls_info_0105-pernr = ls_employee-pernr.
+      ls_info_0105-endda = '99991231'. " Set to the max date
+      ls_info_0105-begda = sy-datum.
+      ls_info_0105-subty = '0001'.
+      ls_info_0105-aedtm = sy-datum.
+      ls_info_0105-uname = SY-uname.
+      ls_info_0105-usrty = '0001'.
+      ls_info_0105-usrid = lv_final_uname.
+
+      INSERT pa0105 FROM ls_info_0105.
+
+      WRITE: / 'Created new UNAME for Employee ID:', ls_employee-pernr,
+             'UNAME:', ls_info_0105-uname.
+
+    ELSE.
+
+      LOOP AT lt_info_0105 INTO ls_info_0105.
+
+        IF ls_info_0105-uname IS INITIAL.
+
+          lv_base_uname = ls_employee-vorna(1) && ls_employee-nachn.
+
+          lv_counter = 1.
+
+          WHILE lv_counter < 1000.
+
+            CONCATENATE lv_base_uname lv_counter INTO lv_final_uname.
+
+            SELECT SINGLE uname FROM pa0105
+              INTO @existing_uname
+              WHERE uname = _final_uname.
+
+            IF sy-subrc <> 0.
+              EXIT.
+            ENDIF.
+
+            lv_counter = lv_counter + 1.
+
+          ENDWHILE.
+
+          ls_info_0105-uname = lv_final_uname.
+          MODIFY pa0105 FROM ls_info_0105.
+
+          WRITE: / 'Updated UNAME for Employee ID:', ls_employee-pernr,
+                 'New UNAME:', ls_info_0105-uname.
+
+        ENDIF.
+
+      ENDLOOP.
+
+    ENDIF.
+
+  ENDLOOP.
+
+ELSE.
+  WRITE: / 'No employee records found for the given PERNRs.'.
+ENDIF.
+
+* Display message or log completion
+WRITE: / 'UNAME update completed.'.
